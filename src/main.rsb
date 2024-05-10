@@ -1,0 +1,179 @@
+use win_ocr::ocr;
+use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
+
+use windows::{
+    core::w,
+    Win32::{
+        Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM},
+        Graphics::Gdi::{
+            BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
+            GetDIBits, ReleaseDC, SelectObject, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+            DIB_RGB_COLORS, HBITMAP, RGBQUAD, SRCCOPY,
+        },
+        System::LibraryLoader::GetModuleHandleW,
+        UI::WindowsAndMessaging::{
+            CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, LoadCursorW,
+            PostQuitMessage, RegisterClassW, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
+            CW_USEDEFAULT, IDC_ARROW, MSG, SW_SHOW, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP,
+            WNDCLASSW, WS_OVERLAPPEDWINDOW,
+        },
+    },
+};
+
+use image::{ImageBuffer, Rgba};
+use std::fs::File;
+use std::path::Path;
+
+fn main() -> windows::core::Result<()> {
+    unsafe {
+        let instance = GetModuleHandleW(None)?;
+        let class_name = w!("SNIP_TOOL\0");
+
+        let wc = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW,
+            lpfnWndProc: Some(window_proc),
+            hInstance: instance.into(),
+            lpszClassName: class_name,
+            hCursor: LoadCursorW(None, IDC_ARROW)?,
+
+            ..Default::default()
+        };
+
+        RegisterClassW(&wc);
+
+        let hwnd = CreateWindowExW(
+            Default::default(),
+            class_name,
+            class_name,
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            None,
+            None,
+            instance,
+            None,
+        );
+
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, HWND(0), 0, 0).into() {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    Ok(())
+}
+
+static mut START_POINT: POINT = POINT { x: 0, y: 0 };
+static mut END_POINT: POINT = POINT { x: 0, y: 0 };
+
+unsafe extern "system" fn window_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_LBUTTONDOWN => {
+            START_POINT = POINT {
+                x: get_x_lparam(lparam),
+                y: get_y_lparam(lparam),
+            };
+            println!("Mouse down at ({}, {})", START_POINT.x, START_POINT.y);
+            LRESULT(0)
+        }
+        WM_LBUTTONUP => {
+            END_POINT = POINT {
+                x: get_x_lparam(lparam),
+                y: get_y_lparam(lparam),
+            };
+            println!("Mouse up at ({}, {})", END_POINT.x, END_POINT.y);
+            if let Err(e) = capture_screen_area(START_POINT, END_POINT) {
+                eprintln!("Error capturing screen area: {}", e);
+            }
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+fn get_x_lparam(lparam: LPARAM) -> i32 {
+    let lp = lparam.0 as i32;
+    lp & 0xFFFF // Extract the lower 16 bits
+}
+
+fn get_y_lparam(lparam: LPARAM) -> i32 {
+    let lp = lparam.0 as i32;
+    (lp >> 16) & 0xFFFF // Shift the higher 16 bits to the right and extract them
+}
+
+unsafe fn capture_screen_area(
+    start_point: POINT,
+    end_point: POINT,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let width = end_point.x - start_point.x;
+    let height = end_point.y - start_point.y;
+    let hwnd_screen = HWND(0);
+    let hdc_screen = GetDC(hwnd_screen);
+    let hdc_memory = CreateCompatibleDC(hdc_screen);
+    let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
+    SelectObject(hdc_memory, hbitmap);
+
+    BitBlt(
+        hdc_memory,
+        0,
+        0,
+        width,
+        height,
+        hdc_screen,
+        start_point.x,
+        start_point.y,
+        SRCCOPY,
+    );
+
+    let mut bitmap_info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height, // Top-down DIB
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: 0, // BI_RGB
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        },
+        bmiColors: [RGBQUAD::default()],
+    };
+
+    let mut buffer = vec![0u8; (width * height * 4) as usize];
+    GetDIBits(
+        hdc_screen,
+        hbitmap,
+        0,
+        height as u32,
+        Some(buffer.as_mut_ptr().cast()),
+        &mut bitmap_info,
+        DIB_RGB_COLORS,
+    );
+
+    let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
+        ImageBuffer::from_raw(width as u32, height as u32, buffer).unwrap();
+    img.save("screenshot.png")?;
+
+    DeleteDC(hdc_memory);
+    ReleaseDC(hwnd_screen, hdc_screen);
+    DeleteObject(hbitmap);
+    Ok(())
+}
