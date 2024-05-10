@@ -22,12 +22,9 @@ use windows::{
 use lazy_static::lazy_static;
 use std::sync::{mpsc, Arc};
 
-mod direct2d;
-mod errorhandler;
-mod win_fact;
-mod window_controller;
-
+mod modules;
 use errorhandler::{handle_error, ExpectedError};
+use modules::*;
 use std::time::Instant;
 use win_fact::{Window, WindowBuilder, WindowType};
 use window_controller::{Command, WindowController};

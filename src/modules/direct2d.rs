@@ -3,32 +3,25 @@ use anyhow::Result;
 use windows::Win32::Graphics::Imaging::{CLSID_WICImagingFactory, IWICImagingFactory};
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::{
-    core::*,
-    Foundation::Numerics::*,
-    Win32::Foundation::*,
-    Win32::Graphics::Direct2D::Common::D2D_SIZE_U,
-    Win32::Graphics::Direct2D::Common::*,
-    Win32::Graphics::Direct2D::Common::*,
-    Win32::Graphics::Direct2D::*,
-    Win32::Graphics::Direct3D::*,
-    Win32::Graphics::Direct3D11::*,
-    Win32::Graphics::Direct3D11::*,
-    Win32::Graphics::Dxgi::Common::*,
-    Win32::Graphics::Dxgi::*,
-    Win32::Graphics::Gdi::*,
-    Win32::Graphics::Imaging::*,
-    Win32::Graphics::*,
-    Win32::System::Com::*,
-    Win32::System::DataExchange::*,
-    Win32::System::LibraryLoader::*,
-    Win32::System::Performance::*,
-    Win32::System::SystemInformation::GetLocalTime,
-    Win32::UI::Animation::*,
-    Win32::UI::WindowsAndMessaging::*,
-    Win32::{
-        Foundation::*, Graphics::Direct2D::Common::*, Graphics::Direct2D::*,
-        Graphics::Dxgi::Common::*, Graphics::Imaging::*, System::Com::*,
-        UI::WindowsAndMessaging::GetSystemMetrics,
+    Win32::Foundation::HWND,
+    Win32::Graphics::Direct2D::Common::{D2D_RECT_F, D2D_SIZE_U},
+    Win32::Graphics::Direct2D::{
+        D2D1CreateFactory, ID2D1Factory, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+        D2D1_BITMAP_PROPERTIES, D2D1_FACTORY_OPTIONS, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_PROPERTIES,
+    },
+    Win32::Graphics::Gdi::{
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, GetDC, ReleaseDC,
+        SelectObject, HBITMAP, SRCCOPY,
+    },
+    Win32::Graphics::Imaging::{
+        GUID_WICPixelFormat32bppPBGRA, WICBitmapAlphaChannelOption, WICBitmapDitherTypeNone,
+        WICBitmapPaletteTypeMedianCut,
+    },
+    Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
+    Win32::UI::WindowsAndMessaging::GetSystemMetrics,
+    Win32::UI::WindowsAndMessaging::{
+        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     },
 };
 

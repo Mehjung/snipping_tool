@@ -1,10 +1,19 @@
 use crate::errorhandler::{handle_error, throw_error, ExpectedError};
-use anyhow::Result;
 use std::os::raw::c_void;
 use windows::core::Error;
 use windows::{
-    core::*, Win32::Foundation::*, Win32::Graphics::Gdi::*,
-    Win32::System::LibraryLoader::GetModuleHandleW, Win32::UI::WindowsAndMessaging::*,
+    core::{w, PCWSTR},
+    Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
+    Win32::Graphics::Gdi::CreateSolidBrush,
+    Win32::System::LibraryLoader::GetModuleHandleW,
+    Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GetSystemMetrics, LoadCursorW, RegisterClassW,
+        SetForegroundWindow, SetLayeredWindowAttributes, SetWindowPos, ShowWindow, CS_HREDRAW,
+        CS_OWNDC, CS_VREDRAW, HMENU, HWND_TOPMOST, IDC_ARROW, IDC_CROSS, LWA_ALPHA,
+        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOMOVE,
+        SWP_NOSIZE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW, WS_EX_COMPOSITED,
+        WS_EX_LAYERED, WS_POPUP,
+    },
 };
 pub struct Window {
     pub hwnd: HWND,
@@ -42,12 +51,6 @@ impl Window {
     pub fn show(&self) {
         unsafe {
             ShowWindow(self.hwnd, SW_SHOW);
-        }
-    }
-
-    pub fn update(&self) {
-        unsafe {
-            UpdateWindow(self.hwnd);
         }
     }
 }
