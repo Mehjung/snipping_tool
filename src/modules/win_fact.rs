@@ -1,18 +1,24 @@
 use crate::errorhandler::{handle_error, throw_error, ExpectedError};
 use std::os::raw::c_void;
+
+use crate::direct2d::render_screen_img;
+use std::time::Instant;
 use windows::core::Error;
+
 use windows::{
     core::{w, PCWSTR},
     Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
-    Win32::Graphics::Gdi::CreateSolidBrush,
+    Win32::Graphics::Gdi::{
+        CreateSolidBrush, RedrawWindow, RDW_ERASE, RDW_INVALIDATE, RDW_NOINTERNALPAINT,
+    },
     Win32::System::LibraryLoader::GetModuleHandleW,
     Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetSystemMetrics, LoadCursorW, RegisterClassW,
-        SetForegroundWindow, SetLayeredWindowAttributes, SetWindowPos, ShowWindow, CS_HREDRAW,
-        CS_OWNDC, CS_VREDRAW, HMENU, HWND_TOPMOST, IDC_ARROW, IDC_CROSS, LWA_ALPHA,
-        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOMOVE,
-        SWP_NOSIZE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW, WS_EX_COMPOSITED,
-        WS_EX_LAYERED, WS_POPUP,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, LoadCursorW,
+        RegisterClassW, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
+        CS_HREDRAW, CS_OWNDC, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW, IDC_CROSS,
+        LWA_ALPHA, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+        SWP_NOMOVE, SWP_NOSIZE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
+        WS_EX_COMPOSITED, WS_EX_LAYERED, WS_POPUP,
     },
 };
 pub struct Window {
@@ -34,6 +40,30 @@ impl Window {
     pub fn set_position(&self) {
         unsafe {
             SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        }
+    }
+
+    pub fn auto_screenshot(&self) {
+        let start = Instant::now();
+        let _ = render_screen_img(self.hwnd);
+        let duration = start.elapsed(); // Get the elapsed time
+
+        println!("Time elapsed in render_screen_img is: {:?}", duration);
+    }
+
+    pub fn trigger_screenshot(&self) {
+        unsafe {
+            println!("Trigger Screenshot");
+            let res = RedrawWindow(
+                self.hwnd,
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_NOINTERNALPAINT,
+            );
+            match res.as_bool() {
+                false => eprintln!("Error in RedrawWindow"),
+                _ => println!("RedrawWindow successful"),
+            }
         }
     }
 
@@ -65,7 +95,7 @@ impl Drop for Window {
         }
     }
 }
-
+#[derive(Debug)]
 pub struct WINDOWPROPS {
     pub dwexstyle: WINDOW_EX_STYLE,
     pub lpclassname: PCWSTR,
@@ -88,10 +118,10 @@ impl Default for WINDOWPROPS {
             lpclassname: w!("win_template_class"),
             lpwindowname: w!("win_template_window"),
             dwstyle: WINDOW_STYLE(0),
-            x: 0,
-            y: 0,
-            nwidth: 0,
-            nheight: 0,
+            x: CW_USEDEFAULT,
+            y: CW_USEDEFAULT,
+            nwidth: CW_USEDEFAULT,
+            nheight: CW_USEDEFAULT,
             hwndparent: HWND::default(),
             hmenu: HMENU::default(),
             hinstance: HINSTANCE::default(),
@@ -261,9 +291,16 @@ pub enum WindowType {
     None,
 }
 
-unsafe extern "system" fn default_window_proc(_: HWND, _: u32, _: WPARAM, _: LPARAM) -> LRESULT {
-    LRESULT(0)
+unsafe extern "system" fn default_window_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    // Hier werden keine spezifischen Nachrichten behandelt. Stattdessen wird alles an DefWindowProcW weitergeleitet.
+    DefWindowProcW(hwnd, msg, wparam, lparam)
 }
+
 impl WindowBuilder {
     pub fn new() -> WindowBuilder {
         WindowBuilder {

@@ -1,9 +1,16 @@
 use crate::errorhandler::throw_error;
 use crate::win_fact::{Window, WindowType};
+use once_cell::sync::Lazy;
+use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard};
+
+pub static CONTROLLER: Lazy<Arc<WindowController>> =
+    Lazy::new(|| Arc::new(WindowController::new()));
 
 pub enum Command {
     Show,
+    AutoScreenshot,
+    TriggerScreenshot,
 }
 
 pub struct WindowController {
@@ -52,6 +59,8 @@ impl WindowController {
         if let Some(window) = &*self.locked_window(window_type)? {
             match command {
                 Command::Show => window.show(),
+                Command::AutoScreenshot => window.auto_screenshot(),
+                Command::TriggerScreenshot => window.trigger_screenshot(),
             }
         }
         Ok(())
