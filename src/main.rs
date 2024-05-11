@@ -1,5 +1,5 @@
 mod modules;
-use modules::*; // Import all modules
+use modules::*;
 
 use win_fact::{WindowBuilder, WindowType};
 use window_controller::CONTROLLER;
@@ -32,7 +32,7 @@ fn main() {
             return;
         }
     };
-    o_win.show();
+    t_win.show();
 
     let _ = CONTROLLER.add_window(t_win);
     let _ = CONTROLLER.add_window(o_win);

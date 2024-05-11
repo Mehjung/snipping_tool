@@ -3,6 +3,7 @@ use crate::win_fact::{Window, WindowType};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard};
+use windows::Win32::Graphics::Direct2D::Common::D2D_POINT_2F;
 
 pub static CONTROLLER: Lazy<Arc<WindowController>> =
     Lazy::new(|| Arc::new(WindowController::new()));
@@ -11,6 +12,12 @@ pub enum Command {
     Show,
     AutoScreenshot,
     TriggerScreenshot,
+    Reload,
+    Hide,
+    DrawRectangle {
+        start: D2D_POINT_2F,
+        end: D2D_POINT_2F,
+    },
 }
 
 pub struct WindowController {
@@ -61,6 +68,9 @@ impl WindowController {
                 Command::Show => window.show(),
                 Command::AutoScreenshot => window.auto_screenshot(),
                 Command::TriggerScreenshot => window.trigger_screenshot(),
+                Command::Reload => window.reload(),
+                Command::Hide => window.hide(),
+                Command::DrawRectangle { start, end } => window.draw_rectangle(start, end),
             }
         }
         Ok(())

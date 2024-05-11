@@ -1,27 +1,30 @@
 use crate::errorhandler::{handle_error, ExpectedError};
 use anyhow::Result;
-use windows::Win32::Graphics::Imaging::{CLSID_WICImagingFactory, IWICImagingFactory};
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
-use windows::{
-    Win32::Foundation::HWND,
-    Win32::Graphics::Direct2D::Common::{D2D_RECT_F, D2D_SIZE_U},
-    Win32::Graphics::Direct2D::{
-        D2D1CreateFactory, ID2D1Factory, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-        D2D1_BITMAP_PROPERTIES, D2D1_FACTORY_OPTIONS, D2D1_FACTORY_TYPE_SINGLE_THREADED,
-        D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_PROPERTIES,
+
+use windows::Win32::{
+    Foundation::{HWND, RECT},
+    Graphics::{
+        Direct2D::{
+            Common::{D2D1_COLOR_F, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_U},
+            D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget,
+            D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_BITMAP_PROPERTIES,
+            D2D1_FACTORY_OPTIONS, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+            D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_PROPERTIES,
+        },
+        Gdi::{
+            BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, GetDC, ReleaseDC,
+            SelectObject, HBITMAP, SRCCOPY,
+        },
+        Imaging::{
+            CLSID_WICImagingFactory, GUID_WICPixelFormat32bppPBGRA, IWICBitmap,
+            IWICFormatConverter, IWICImagingFactory, WICBitmapAlphaChannelOption,
+            WICBitmapDitherTypeNone, WICBitmapPaletteTypeMedianCut,
+        },
     },
-    Win32::Graphics::Gdi::{
-        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, GetDC, ReleaseDC,
-        SelectObject, HBITMAP, SRCCOPY,
-    },
-    Win32::Graphics::Imaging::{
-        GUID_WICPixelFormat32bppPBGRA, WICBitmapAlphaChannelOption, WICBitmapDitherTypeNone,
-        WICBitmapPaletteTypeMedianCut,
-    },
-    Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED},
-    Win32::UI::WindowsAndMessaging::GetSystemMetrics,
-    Win32::UI::WindowsAndMessaging::{
-        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED},
+    UI::WindowsAndMessaging::{
+        GetClientRect, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN,
     },
 };
 
@@ -57,75 +60,201 @@ pub fn capture_screen_to_bitmap() -> Result<HBITMAP> {
     }
 }
 
+fn initialize_com_library() -> Result<(), anyhow::Error> {
+    handle_error(
+        "Failed to initialize COM library",
+        ExpectedError::Win32,
+        || unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).is_err() },
+    )
+}
+
+fn create_wic_imaging_factory() -> Result<IWICImagingFactory, anyhow::Error> {
+    let res = unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER) };
+    res.map_err(|_| anyhow::anyhow!("Failed to create WIC Imaging Factory"))
+}
 pub fn render_screen_img(win: HWND) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    unsafe {
-        //initialize:
-        handle_error("Delete DC error", ExpectedError::Win32, || {
-            CoInitializeEx(None, COINIT_MULTITHREADED).is_err()
-        })?;
+    // Initialize COM library
+    let _ = initialize_com_library();
 
-        let hr: IWICImagingFactory =
-            CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
+    let hr = create_wic_imaging_factory()?;
+    // Capture screen to bitmap
+    let hb_desktop = capture_screen_to_bitmap()?;
 
-        // Capture screen to bitmap
-        let hb_desktop = capture_screen_to_bitmap()?;
+    let BitmapConverter {
+        converter,
+        width,
+        height,
+        ..
+    } = BitmapConverter::new(&hr, hb_desktop)?;
 
-        // Create a WIC bitmap from the HBITMAP
-        let bitmap =
-            hr.CreateBitmapFromHBITMAP(hb_desktop, None, WICBitmapAlphaChannelOption(0))?;
+    let Direct2DFactory { rwt, .. } = Direct2DFactory::new(win, None, None)?;
 
-        let mut width: u32 = 0;
-        let mut height: u32 = 0;
-        bitmap.GetSize(&mut width, &mut height)?;
+    let bmps = unsafe {
+        rwt.CreateBitmapFromWicBitmap(&converter, Some(&D2D1_BITMAP_PROPERTIES::default()))?
+    };
 
-        // get format converter to build a bitmap:
-        let converter = hr.CreateFormatConverter()?;
-        converter.Initialize(
-            &bitmap,
-            &GUID_WICPixelFormat32bppPBGRA,
-            WICBitmapDitherTypeNone,
-            None,
-            0.0,
-            WICBitmapPaletteTypeMedianCut,
-        )?;
+    let renderer = Renderer::new(rwt, width, height);
 
-        //get Direct2D Factroy necessary to render target:
-        let factory: ID2D1Factory = D2D1CreateFactory(
-            D2D1_FACTORY_TYPE_SINGLE_THREADED,
-            Some(&D2D1_FACTORY_OPTIONS::default()),
-        )?;
-        let prop1 = D2D1_RENDER_TARGET_PROPERTIES {
-            dpiX: Default::default(),
-            dpiY: Default::default(),
-            ..Default::default()
+    renderer.draw_bitmap(&bmps)?;
+
+    Ok(())
+}
+
+pub fn draw_rectangle(
+    win: HWND,
+    start: D2D_POINT_2F,
+    end: D2D_POINT_2F,
+) -> Result<(), anyhow::Error> {
+    let Direct2DFactory { rwt, .. } = Direct2DFactory::new(win, None, None)?;
+    let renderer = Renderer::new(rwt, 0, 0);
+
+    renderer.draw_rectangle(start, end)
+}
+
+struct Direct2DFactory {
+    factory: ID2D1Factory,
+    prop1: D2D1_RENDER_TARGET_PROPERTIES,
+    prop2: D2D1_HWND_RENDER_TARGET_PROPERTIES,
+    rwt: ID2D1HwndRenderTarget,
+}
+
+impl Direct2DFactory {
+    fn new(win: HWND, width: Option<u32>, height: Option<u32>) -> Result<Self, anyhow::Error> {
+        let factory: ID2D1Factory = unsafe {
+            D2D1CreateFactory(
+                D2D1_FACTORY_TYPE_SINGLE_THREADED,
+                Some(&D2D1_FACTORY_OPTIONS::default()),
+            )?
         };
+
+        let (width, height) = match (width, height) {
+            (Some(w), Some(h)) => (w, h),
+            _ => {
+                // Abfrage der Fenstergröße
+                let mut rect = RECT::default();
+                unsafe {
+                    let _ = GetClientRect(win, &mut rect)?;
+                }
+                (
+                    (rect.right - rect.left) as u32,
+                    (rect.bottom - rect.top) as u32,
+                )
+            }
+        };
+
+        let prop1 = D2D1_RENDER_TARGET_PROPERTIES::default();
         let prop2 = D2D1_HWND_RENDER_TARGET_PROPERTIES {
-            hwnd: win, //win is the parameter of this function providing a window to draw on
+            hwnd: win,
             pixelSize: D2D_SIZE_U { width, height },
             ..Default::default()
         };
-        let rwt = factory.CreateHwndRenderTarget(&prop1, &prop2)?;
 
-        let bmps =
-            rwt.CreateBitmapFromWicBitmap(&converter, Some(&D2D1_BITMAP_PROPERTIES::default()))?;
+        let rwt = unsafe { factory.CreateHwndRenderTarget(&prop1, &prop2)? };
 
+        Ok(Self {
+            factory,
+            prop1,
+            prop2,
+            rwt,
+        })
+    }
+}
+
+struct BitmapConverter {
+    bitmap: IWICBitmap,
+    converter: IWICFormatConverter,
+    width: u32,
+    height: u32,
+}
+
+impl BitmapConverter {
+    fn new(hr: &IWICImagingFactory, hb_desktop: HBITMAP) -> Result<Self, anyhow::Error> {
+        let bitmap = unsafe {
+            hr.CreateBitmapFromHBITMAP(hb_desktop, None, WICBitmapAlphaChannelOption(0))?
+        };
+
+        let (mut width, mut height) = (0u32, 0u32);
+        unsafe { bitmap.GetSize(&mut width, &mut height)? };
+
+        let converter = unsafe { hr.CreateFormatConverter()? };
+        unsafe {
+            converter.Initialize(
+                &bitmap,
+                &GUID_WICPixelFormat32bppPBGRA,
+                WICBitmapDitherTypeNone,
+                None,
+                0.0,
+                WICBitmapPaletteTypeMedianCut,
+            )?
+        };
+
+        Ok(Self {
+            bitmap,
+            converter,
+            width,
+            height,
+        })
+    }
+}
+
+struct Renderer {
+    rwt: ID2D1HwndRenderTarget,
+    srect: D2D_RECT_F,
+}
+
+impl Renderer {
+    fn new(rwt: ID2D1HwndRenderTarget, width: u32, height: u32) -> Self {
         let srect = D2D_RECT_F {
             left: 0.0,
             top: 0.0,
             right: width as _,
             bottom: height as _,
         };
-        rwt.BeginDraw();
 
-        rwt.DrawBitmap(
-            &bmps,
-            Some(&srect),
-            1.0,
-            D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-            Some(&srect),
-        );
+        Self { rwt, srect }
+    }
 
-        rwt.EndDraw(None, None)?;
-    };
-    Ok(())
+    fn draw_bitmap(&self, bmps: &ID2D1Bitmap) -> Result<(), anyhow::Error> {
+        unsafe { self.rwt.BeginDraw() };
+
+        unsafe {
+            self.rwt.DrawBitmap(
+                bmps,
+                Some(&self.srect),
+                1.0,
+                D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                Some(&self.srect),
+            )
+        };
+
+        unsafe { self.rwt.EndDraw(None, None)? };
+
+        Ok(())
+    }
+    fn draw_rectangle(&self, start: D2D_POINT_2F, end: D2D_POINT_2F) -> Result<(), anyhow::Error> {
+        unsafe { self.rwt.BeginDraw() };
+
+        let rect = D2D_RECT_F {
+            left: start.x.min(end.x),
+            top: start.y.min(end.y),
+            right: start.x.max(end.x),
+            bottom: start.y.max(end.y),
+        };
+
+        let color = D2D1_COLOR_F {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 1.0,
+        };
+
+        let brush = unsafe { self.rwt.CreateSolidColorBrush(&color, None)? };
+
+        unsafe {
+            self.rwt.DrawRectangle(&rect, &brush, 1.0, None);
+            self.rwt.EndDraw(None, None)?;
+        }
+
+        Ok(())
+    }
 }

@@ -1,24 +1,25 @@
-use crate::errorhandler::{handle_error, throw_error, ExpectedError};
-use std::os::raw::c_void;
-
-use crate::direct2d::render_screen_img;
-use std::time::Instant;
-use windows::core::Error;
-
+use crate::{
+    direct2d::{draw_rectangle, render_screen_img},
+    errorhandler::{handle_error, throw_error, ExpectedError},
+};
+use std::{os::raw::c_void, time::Instant};
 use windows::{
-    core::{w, PCWSTR},
-    Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
-    Win32::Graphics::Gdi::{
-        CreateSolidBrush, RedrawWindow, RDW_ERASE, RDW_INVALIDATE, RDW_NOINTERNALPAINT,
-    },
-    Win32::System::LibraryLoader::GetModuleHandleW,
-    Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, LoadCursorW,
-        RegisterClassW, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowPos, ShowWindow,
-        CS_HREDRAW, CS_OWNDC, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST, IDC_ARROW, IDC_CROSS,
-        LWA_ALPHA, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-        SWP_NOMOVE, SWP_NOSIZE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
-        WS_EX_COMPOSITED, WS_EX_LAYERED, WS_POPUP,
+    core::{w, Error, PCWSTR},
+    Win32::{
+        Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
+        Graphics::Direct2D::Common::D2D_POINT_2F,
+        Graphics::Gdi::{
+            CreateSolidBrush, RedrawWindow, RDW_ERASE, RDW_INVALIDATE, RDW_NOINTERNALPAINT,
+        },
+        System::LibraryLoader::GetModuleHandleW,
+        UI::WindowsAndMessaging::{
+            CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, LoadCursorW,
+            RegisterClassW, SetForegroundWindow, SetLayeredWindowAttributes, SetWindowPos,
+            ShowWindow, CS_HREDRAW, CS_OWNDC, CS_VREDRAW, CW_USEDEFAULT, HMENU, HWND_TOPMOST,
+            IDC_ARROW, IDC_CROSS, LWA_ALPHA, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+            SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOW,
+            WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW, WS_EX_COMPOSITED, WS_EX_LAYERED, WS_POPUP,
+        },
     },
 };
 pub struct Window {
@@ -41,6 +42,21 @@ impl Window {
         unsafe {
             SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         }
+    }
+
+    pub fn hide(&self) {
+        unsafe {
+            ShowWindow(self.hwnd, SW_HIDE);
+        }
+    }
+
+    pub fn reload(&self) {
+        self.hide();
+        self.show();
+    }
+
+    pub fn draw_rectangle(&self, start: D2D_POINT_2F, end: D2D_POINT_2F) {
+        draw_rectangle(self.hwnd, start, end);
     }
 
     pub fn auto_screenshot(&self) {
