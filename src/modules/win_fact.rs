@@ -1,5 +1,5 @@
 use crate::{
-    direct2d::{draw_rectangle, render_screen_img},
+    direct2d::{draw_rectangle, draw_updated_area, render_screen_img},
     errorhandler::{handle_error, throw_error, ExpectedError},
 };
 use std::{os::raw::c_void, time::Instant};
@@ -50,6 +50,9 @@ impl Window {
         }
     }
 
+    pub fn draw_updated_area(&self) {
+        draw_updated_area(self.hwnd);
+    }
     pub fn reload(&self) {
         self.hide();
         self.show();

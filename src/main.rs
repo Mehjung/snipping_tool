@@ -32,7 +32,7 @@ fn main() {
             return;
         }
     };
-    t_win.show();
+    o_win.show();
 
     let _ = CONTROLLER.add_window(t_win);
     let _ = CONTROLLER.add_window(o_win);
